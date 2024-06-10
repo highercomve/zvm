@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 sigkey="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
 ZVM_DIR="$HOME/.zvm"
@@ -158,9 +159,12 @@ select_run() {
   grep -v "/.zvm/" "$HOME/.bashrc" > "$HOME/.bashrc.tmp"
   mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
 
+  newpath=$(echo "$PATH" | sed "s|:$HOME/.zvm/[^:]*||g")
+  newpath="$newpath:$HOME/.zvm/$ZVM_VERSION"
   echo "export PATH=\"\$PATH:\$HOME/.zvm/$ZVM_VERSION\"" >> "$HOME/.bashrc"
 
-  source "$HOME/.bashrc"
+  PATH="$newpath"
+  echo "$PATH"
 }
 
 # Install a new version

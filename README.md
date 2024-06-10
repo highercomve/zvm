@@ -94,7 +94,7 @@ The use subcommand sets the default Zig version to use.
 Example:
 
 ```
-zvm use 0.11.0
+export PATH=$(zvm use 0.11.0)
 ```
 
 ### zvm version

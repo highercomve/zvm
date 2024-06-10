@@ -5,6 +5,8 @@ sigkey="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
 ZVM_DIR="$HOME/.zvm"
 running_dir=$(sh -c "cd $(dirname $0) && pwd")
 filename=zig.tar.gz
+zig_download_json=https://ziglang.org/download/index.json
+zls_repo=https://github.com/zigtools/zls.git
 
 if [ ! -d "$ZVM_DIR" ]; then
   mkdir -p "$ZVM_DIR"
@@ -30,7 +32,7 @@ fi
 get_versions() {
   # Fetch the JSON data from the Zig website
   echo "Fetching Zig versions..."
-  json_data=$(curl -s "https://ziglang.org/download/index.json")
+  json_data=$(curl -s "$zig_download_json")
 }
 
 # Function to select a Zig version
@@ -98,7 +100,7 @@ download_asset() {
 
 # List installed versions
 list_versions() {
-  local selected_version=$(basename $(echo "$PATH" | grep -o "$ZVM_DIR/[^:]*"))
+  local selected_version=$($ZVM_DIR/current/zig version)
   local versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
 
   if [ -z "$versions" ]; then
@@ -159,13 +161,13 @@ select_run() {
   grep -v "/.zvm/" "$HOME/.bashrc" > "$HOME/.bashrc.tmp"
   mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
 
-  newpath=$(echo "$PATH" | sed "s|:$HOME/.zvm/[^:]*||g")
-  newpath="$newpath:$HOME/.zvm/$ZVM_VERSION"
-  echo "export PATH=\"\$PATH:\$HOME/.zvm/$ZVM_VERSION\"" >> "$HOME/.bashrc"
+  unlink "$HOME/.zvm/current" 2>&1 >/dev/null || true
+  ln -s "$ZVM_DIR/$ZVM_VERSION" "$HOME/.zvm/current"
 
-  PATH="$newpath"
+  echo "export PATH=\"\$PATH:\$HOME/.zvm/current\"" >> "$HOME/.bashrc"
 
-  echo "$PATH"
+  echo "zig version"
+  $HOME/.zvm/current/zig version
 }
 
 # Install a new version
@@ -200,15 +202,40 @@ print_usage() {
   echo "Usage: zvm [list|remove|install|use] [version/options]"
   echo ""
   echo "Options:"
+  echo "  zls         - Install zls for the current version"
   echo "  list        - List installed versions"
   echo "  remove      - Remove installed version"
   echo "  install     - Install a new version"
   echo "  use         - Select what version to run"
+  echo "  versions    - SHow all the versions avalable on zig website"
+}
+
+zls_install() {
+  local selected_version="current"
+  
+  if [ -f "$ZVM_DIR/$selected_version/zls" ]; then
+    echo "zls already installed."
+    return 1
+  fi
+
+  echo "Installing zls..."
+  cd $ZVM_DIR/$selected_version
+  git clone --branch $selected_version $zls_repo zls_src
+  cd zls_src
+  zig build
+  mv zig-out/bin/zls $ZVM_DIR/$selected_version/zls
+  cd ../
+  rm -rf zls_src
+  echo "Installed zls."
 }
 
 # switch for subcommands
 switch_command() {
   case $1 in
+  zls)
+    shift
+    zls_install $@
+    ;;
   list)
     list_versions
     ;;

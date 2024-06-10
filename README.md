@@ -31,9 +31,9 @@ zvm list
 Example output:
 ```
 Installed versions:
-  0.9.0
-  0.10.0
-* 0.11.0
+  0.11.0
+  0.12.0
+* 0.13.0
 ```
 
 ### zvm remove
@@ -94,7 +94,7 @@ The use subcommand sets the default Zig version to use.
 Example:
 
 ```
-export PATH=$(zvm use 0.11.0)
+export PATH=$(zvm use 0.13.0)
 ```
 
 ### zvm version

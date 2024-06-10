@@ -164,6 +164,7 @@ select_run() {
   echo "export PATH=\"\$PATH:\$HOME/.zvm/$ZVM_VERSION\"" >> "$HOME/.bashrc"
 
   PATH="$newpath"
+
   echo "$PATH"
 }
 

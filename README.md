@@ -49,12 +49,12 @@ zvm remove <version>
 The install subcommand installs a new Zig version. if no version and architecture is use as arguments, the script will list the available versions if zig and let you select what version and architecture you want to install.
 
 ```
-./zvm install [<version>] [<architecture>]
+zvm install [<version>] [<architecture>]
 ```
 
 Example:
 ```
-./zvm install 
+zvm install 
 ```
 
 Example output
@@ -88,7 +88,7 @@ Installed version 0.13.0.
 The use subcommand sets the default Zig version to use.
 
 ```
-.zvm use <version>
+zvm use <version>
 ```
 
 Example:

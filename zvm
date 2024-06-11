@@ -212,7 +212,8 @@ print_usage() {
 
 zls_install() {
   local selected_version="current"
-  
+  local tag=$($ZVM_DIR/current/zig version)
+
   if [ -f "$ZVM_DIR/$selected_version/zls" ]; then
     echo "zls already installed."
     return 1
@@ -220,7 +221,7 @@ zls_install() {
 
   echo "Installing zls..."
   cd $ZVM_DIR/$selected_version
-  git clone --branch $selected_version $zls_repo zls_src
+  git clone --branch $tag $zls_repo zls_src
   cd zls_src
   zig build
   mv zig-out/bin/zls $ZVM_DIR/$selected_version/zls

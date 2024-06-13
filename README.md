@@ -91,12 +91,6 @@ The use subcommand sets the default Zig version to use.
 zvm use <version>
 ```
 
-Example:
-
-```
-export PATH=$(zvm use 0.13.0)
-```
-
 ### zvm version
 
 The versions subcommand lists all the available Zig versions.

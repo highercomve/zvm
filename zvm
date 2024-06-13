@@ -131,9 +131,6 @@ remove_version() {
     echo "Version $version not found."
     return 1
   fi
-
-  grep -v "/.zvm/" "$HOME/.bashrc" > "$HOME/.bashrc.tmp"
-  mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
 }
 
 # Select what version to run

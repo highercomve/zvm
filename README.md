@@ -85,11 +85,17 @@ zvm remove <version>
 ```
 
 ### zvm install
-
-The install subcommand installs a new Zig version. if no version and architecture is use as arguments, the script will list the available versions if zig and let you select what version and architecture you want to install.
+The install subcommand installs a new Zig version. If no version and architecture are used as arguments, the script will list the available versions of Zig and let you select which version and architecture you want to install.
 
 ```
 zvm install [<version>] [<architecture>]
+```
+
+If you only pass the version, zvm will install it for your current architecture. This is useful if you know the version you want but don't want to specify the architecture every time.
+
+Example:
+```
+zvm install 0.13.0
 ```
 
 Example:

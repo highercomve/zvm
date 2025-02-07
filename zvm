@@ -8,262 +8,302 @@ filename=zig.tar.gz
 zig_download_json=https://ziglang.org/download/index.json
 zls_repo=https://github.com/zigtools/zls.git
 
-if [ ! -d "$ZVM_DIR" ]; then
-  mkdir -p "$ZVM_DIR"
+if [ ! -d "$ZVM_DIR/current" ]; then
+ echo "Setting up initial PATH for .zvm/current..."
+
+ if [ -f "$HOME/.bashrc" ]; then
+  echo 'export PATH="$PATH:$HOME/.zvm/current"' >> "$HOME/.bashrc"
+ fi
+
+ if [ -f "$HOME/.zshrc" ]; then
+  echo 'export PATH="$PATH:$HOME/.zvm/current"' >> "$HOME/.zshrc"
+ fi
+
+ if [ -d "$HOME/.config/fish" ]; then
+  echo 'set -x PATH $PATH $HOME/.zvm/current' >> "$HOME/.config/fish/config.fish"
+ fi
+
+ echo "Initial PATH setup complete."
 fi
 
+if [ ! -d "$ZVM_DIR" ]; then
+	mkdir -p "$ZVM_DIR"
+fi
 
 # Ensure curl and jq are installed
 if ! command -v sha256sum &>/dev/null; then
-  echo "sha256sum could not be found. Please install it."
-  exit 1
+	echo "sha256sum could not be found. Please install it."
+	exit 1
 fi
 
 if ! command -v curl &>/dev/null; then
-  echo "curl could not be found. Please install it."
-  exit 1
+	echo "curl could not be found. Please install it."
+	exit 1
 fi
 
 if ! command -v jq &>/dev/null; then
-  echo "jq could not be found. Please install it."
-  exit 1
+	echo "jq could not be found. Please install it."
+	exit 1
 fi
 
 get_versions() {
-  # Fetch the JSON data from the Zig website
-  echo "Fetching Zig versions..."
-  json_data=$(curl -s "$zig_download_json")
+	# Fetch the JSON data from the Zig website
+	echo "Fetching Zig versions..."
+	json_data=$(curl -s "$zig_download_json")
 }
 
 # Function to select a Zig version
 select_version() {
-  echo "Available versions:"
-  versions=$(echo "$json_data" | jq -r 'keys[]' | sort -Vr)
+	echo "Available versions:"
+	versions=$(echo "$json_data" | jq -r 'keys[]' | sort -Vr)
 
-  if [ -z "$versions" ]; then
-    echo "No versions found or unable to fetch versions."
-    exit 1
-  fi
+	if [ -z "$versions" ]; then
+		echo "No versions found or unable to fetch versions."
+		exit 1
+	fi
 
-  select version in $versions; do
-    if [ -n "$version" ]; then
-      echo "Selected version: $version"
-      selected_version="$version"
-      break
-    else
-      echo "Invalid selection. Please try again."
-    fi
-  done
+	select version in $versions; do
+		if [ -n "$version" ]; then
+			echo "Selected version: $version"
+			selected_version="$version"
+			break
+		else
+			echo "Invalid selection. Please try again."
+		fi
+	done
 }
 
 # Function to select an architecture and download the asset
 download_asset() {
-  local version="$1"
-  local architecture="$2"
+	local version="$1"
+	local architecture="$2"
 
-  if [ -z "$architecture" ]; then
-    echo "Available architectures for version $version:"
-    architectures=$(echo "$json_data" | jq -r --arg version "$version" '.[$version] | to_entries[] | select(.key | test("-")) | .key')
+	if [ -z "$architecture" ]; then
+		echo "Available architectures for version $version:"
+		architectures=$(echo "$json_data" | jq -r --arg version "$version" '.[$version] | to_entries[] | select(.key | test("-")) | .key')
 
-    if [ -z "$architectures" ]; then
-      echo "No architectures found for the selected version."
-      exit 1
-    fi
-    select a in $architectures; do
-      if [ -n "$a" ]; then
-        architecture="$a"
-        break
-      fi
-    done
-  fi
+		if [ -z "$architectures" ]; then
+			echo "No architectures found for the selected version."
+			exit 1
+		fi
+		select a in $architectures; do
+			if [ -n "$a" ]; then
+				architecture="$a"
+				break
+			fi
+		done
+	fi
 
-  if [ -n "$architecture" ]; then
-    echo "Selected architecture: $architecture"
-    asset_url=$(echo "$json_data" | jq -r --arg version "$version" --arg architecture "$architecture" '.[$version][$architecture].tarball')
-    shasum=$(echo "$json_data" | jq -r --arg version "$version" --arg architecture "$architecture" '.[$version][$architecture].shasum')
-    echo "Downloading $architecture from $asset_url..."
-    curl -L "$asset_url" -o $filename
-    echo "Download complete."
-    echo "Verifying signature for $filename..."
-    if [ "$(sha256sum zig.tar.gz | awk '{print $1}')" != "$shasum" ]; then
-      echo "Signature verification failed. Please try again."
-      rm $filename
-      exit 1  
-    fi
-    echo "Signature verification successful."
-  else
-    echo "Invalid selection. Please try again."
-  fi
+	if [ -n "$architecture" ]; then
+		echo "Selected architecture: $architecture"
+		asset_url=$(echo "$json_data" | jq -r --arg version "$version" --arg architecture "$architecture" '.[$version][$architecture].tarball')
+		shasum=$(echo "$json_data" | jq -r --arg version "$version" --arg architecture "$architecture" '.[$version][$architecture].shasum')
+		echo "Downloading $architecture from $asset_url..."
+		curl -L "$asset_url" -o $filename
+		echo "Download complete."
+		echo "Verifying signature for $filename..."
+		if [ "$(sha256sum zig.tar.gz | awk '{print $1}')" != "$shasum" ]; then
+			echo "Signature verification failed. Please try again."
+			rm $filename
+			exit 1
+		fi
+		echo "Signature verification successful."
+	else
+		echo "Invalid selection. Please try again."
+	fi
 }
 
 # Subcommands
 
 # List installed versions
 list_versions() {
-  local selected_version=$($ZVM_DIR/current/zig version)
-  local versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+	local selected_version=$($ZVM_DIR/current/zig version)
+	local versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
 
-  if [ -z "$versions" ]; then
-    echo "No versions installed."
-  else
-    echo "Installed versions:"
-    for version in $versions; do
-      if [ "$version" == "$selected_version" ]; then
-        echo "* $version"
-      else
-        echo "  $version"
-      fi
-    done
-  fi
+	if [ -z "$versions" ]; then
+		echo "No versions installed."
+	else
+		echo "Installed versions:"
+		for version in $versions; do
+			if [ "$version" == "$selected_version" ]; then
+				echo "* $version"
+			else
+				echo "  $version"
+			fi
+		done
+	fi
 }
 
 # Remove installed version
 remove_version() {
-  local version="$1"
-  if [ -z "$version" ]; then
-    echo "Please provide a version to remove."
-    return 1
-  fi
-  if [ -d "$ZVM_DIR/$version" ]; then
-    echo "Removing version $version..."
-    rm -rf "$ZVM_DIR/$version"
-  else
-    echo "Version $version not found."
-    return 1
-  fi
+	local version="$1"
+	if [ -z "$version" ]; then
+		echo "Please provide a version to remove."
+		return 1
+	fi
+	if [ -d "$ZVM_DIR/$version" ]; then
+		echo "Removing version $version..."
+		rm -rf "$ZVM_DIR/$version"
+	else
+		echo "Version $version not found."
+		return 1
+	fi
 }
 
 # Select what version to run
 select_run() {
-  if [ -z "$1" ]; then
-    local versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
-    if [ -z "$versions" ]; then
-      echo "No versions installed."
-      return 1
-    fi
-    select version in $versions; do
-      if [ -n "$version" ]; then
-        echo "Selected version: $version"
-        export ZVM_VERSION="$version"
-        break
-      else
-        echo "Invalid selection. Please try again."
-      fi
-    done
-  else
-    export ZVM_VERSION="$1"
-  fi
+	if [ -z "$1" ]; then
+		local versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+		if [ -z "$versions" ]; then
+			echo "No versions installed."
+			return 1
+		fi
+		select version in $versions; do
+			if [ -n "$version" ]; then
+				echo "Selected version: $version"
+				export ZVM_VERSION="$version"
+				break
+			else
+				echo "Invalid selection. Please try again."
+			fi
+		done
+	else
+		export ZVM_VERSION="$1"
+	fi
 
-  # remove any previous version on PATH
-  grep -v "/.zvm/" "$HOME/.bashrc" > "$HOME/.bashrc.tmp"
-  mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
+	# remove any previous version on PATH
+	grep -v "/.zvm/" "$HOME/.bashrc" > "$HOME/.bashrc.tmp"
+	mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
 
-  unlink "$HOME/.zvm/current" 2>&1 >/dev/null || true
-  ln -s "$ZVM_DIR/$ZVM_VERSION" "$HOME/.zvm/current"
+	unlink "$HOME/.zvm/current" 2>&1 >/dev/null || true
+	ln -s "$ZVM_DIR/$ZVM_VERSION" "$HOME/.zvm/current"
 
-  echo "export PATH=\"\$PATH:\$HOME/.zvm/current\"" >> "$HOME/.bashrc"
+	echo "export PATH=\"\$PATH:\$HOME/.zvm/current\"" >> "$HOME/.bashrc"
 
-  echo "zig version"
-  $HOME/.zvm/current/zig version
+	echo "zig version"
+	$HOME/.zvm/current/zig version
+}
+
+get_system_architecture() {
+	case "$(uname -s)-$(uname -m)" in
+		Linux-x86_64) echo "x86_64-linux" ;;
+		Linux-aarch64) echo "aarch64-linux" ;;
+		Linux-armv7l) echo "armv7a-linux" ;;
+		Linux-riscv64) echo "riscv64-linux" ;;
+		Linux-ppc64le) echo "powerpc64le-linux" ;;
+		Linux-i686) echo "x86-linux" ;;
+		Darwin-x86_64) echo "x86_64-macos" ;;
+		Darwin-arm64) echo "aarch64-macos" ;;
+		FreeBSD-x86_64) echo "x86_64-freebsd" ;;
+		MINGW64_NT-*-x86_64) echo "x86_64-windows" ;;
+		MINGW32_NT-*-i686) echo "x86-windows" ;;
+		*) echo "Unsupported architecture"; exit 1 ;;
+	esac
 }
 
 # Install a new version
 install_version() {
-  get_versions
-  local version="$1"
-  local architecture="$2"
-  if [ -z "$version" ]; then
-    select_version
-    version=$selected_version
-  fi
-  if [ -d "$ZVM_DIR/$version" ]; then
-    echo "Version $version already installed."
-    return 1
-  fi
+	get_versions
+	local version="$1"
+	local architecture="$2"
 
-  download_asset "$version" $architecture
-  mkdir -p "$ZVM_DIR/$version"
-  echo "Extracting $filename..."
-  tar -xf $filename -C "$ZVM_DIR/$version" >/dev/null
-  echo "Extraction complete."
-  extractedfolder=$(ls $ZVM_DIR/$version/)
-  mv $ZVM_DIR/$version/${extractedfolder}/* $ZVM_DIR/$version/
-  rm $filename
-  rm -rf $extractedfolder
-  echo "Installed version $version."
-  select_run "$version"
+	if [ -z "$version" ]; then
+		select_version
+		version=$selected_version
+	fi
+	if [ -d "$ZVM_DIR/$version" ]; then
+		echo "Version $version already installed."
+		return 1
+	fi
+
+	if [ -z "$architecture" ]; then
+		architecture=$(get_system_architecture)
+		echo "Detected system architecture: $architecture"
+	fi
+
+	download_asset "$version" $architecture
+	mkdir -p "$ZVM_DIR/$version"
+	echo "Extracting $filename..."
+	tar -xf $filename -C "$ZVM_DIR/$version" >/dev/null
+	echo "Extraction complete."
+	extractedfolder=$(ls $ZVM_DIR/$version/)
+	mv $ZVM_DIR/$version/${extractedfolder}/* $ZVM_DIR/$version/
+	rm $filename
+	rm -rf $extractedfolder
+	echo "Installed version $version."
+	select_run "$version"
 }
 
 # Function to print usage
 print_usage() {
-  echo "Usage: zvm [list|remove|install|use] [version/options]"
-  echo ""
-  echo "Options:"
-  echo "  zls         - Install zls for the current version"
-  echo "  list        - List installed versions"
-  echo "  remove      - Remove installed version"
-  echo "  install     - Install a new version"
-  echo "  use         - Select what version to run"
-  echo "  versions    - SHow all the versions avalable on zig website"
+	echo "Usage: zvm [list|remove|install|use] [version/options]"
+	echo ""
+	echo "Options:"
+	echo "  zls         - Install zls for the current version"
+	echo "  list        - List installed versions"
+	echo "  remove      - Remove installed version"
+	echo "  install     - Install a new version"
+	echo "  use         - Select what version to run"
+	echo "  versions    - SHow all the versions avalable on zig website"
 }
 
 zls_install() {
-  local selected_version="current"
-  local tag=$($ZVM_DIR/current/zig version)
+	local selected_version="current"
+	local tag=$($ZVM_DIR/current/zig version)
 
-  if [ -f "$ZVM_DIR/$selected_version/zls" ]; then
-    echo "zls already installed."
-    return 1
-  fi
+	if [ -f "$ZVM_DIR/$selected_version/zls" ]; then
+		echo "zls already installed."
+		return 1
+	fi
 
-  echo "Installing zls..."
-  cd $ZVM_DIR/$selected_version
-  git clone --branch $tag $zls_repo zls_src
-  cd zls_src
-  zig build
-  mv zig-out/bin/zls $ZVM_DIR/$selected_version/zls
-  cd ../
-  rm -rf zls_src
-  echo "Installed zls."
+	echo "Installing zls..."
+	cd $ZVM_DIR/$selected_version
+	git clone --branch $tag $zls_repo zls_src
+	cd zls_src
+	zig build
+	mv zig-out/bin/zls $ZVM_DIR/$selected_version/zls
+	cd ../
+	rm -rf zls_src
+	echo "Installed zls."
 }
 
 # switch for subcommands
 switch_command() {
-  case $1 in
-  zls)
-    shift
-    zls_install $@
-    ;;
-  list)
-    list_versions
-    ;;
-  remove)
-    shift
-    remove_version $@
-    ;;
-  install)
-    shift
-    install_version $@
-    ;;
-  use)
-    shift
-    select_run $@
-    ;;
-  versions)
-    get_versions
-    echo "$json_data" | jq -r 'keys[]' | sort -Vr
-    ;;
-  *)
-    print_usage
-    exit 1
-    ;;
-  esac
+	case $1 in
+	zls)
+		shift
+		zls_install $@
+		;;
+	list)
+		list_versions
+		;;
+	remove)
+		shift
+		remove_version $@
+		;;
+	install)
+		shift
+		install_version $@
+		;;
+	use)
+		shift
+		select_run $@
+		;;
+	versions)
+		get_versions
+		echo "$json_data" | jq -r 'keys[]' | sort -Vr
+		;;
+	*)
+		print_usage
+		exit 1
+		;;
+	esac
 }
 
 # Main
 if [ -z "$1" ]; then
-  print_usage
-  exit 1
+	print_usage
+	exit 1
 fi
 
 switch_command $@

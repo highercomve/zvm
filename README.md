@@ -7,9 +7,26 @@ This script helps you manage multiple versions of Zig on your system.
 Download the zvm script and make it executable:
 
 ```
-curl -o zvm https://raw.githubusercontent.com/highercomve/zvm/main/zvm
+https://raw.githubusercontent.com/highercomve/zvm/refs/heads/master/zvm
 chmod +x zvm
 sudo mv zvm /usr/local/bin/zvm
+```
+
+Add the zvm path to your system's PATH environment variable to ensure that the installed Zig versions can be easily accessed from the command line. This step is crucial because it allows your terminal to locate the Zig binaries managed by zvm, enabling you to use the `zig` command without specifying the full path to the executable. By adding the zvm path to your PATH, you streamline your workflow and ensure that the correct version of Zig is used consistently across your projects.
+
+For `.bashrc`:
+```
+export PATH="$PATH:$HOME/.zvm/current"
+```
+
+For `.zshrc`:
+```
+export PATH="$PATH:$HOME/.zvm/current"
+```
+
+For `.config/fish/config.fish`:
+```
+set -x PATH $PATH $HOME/.zvm/current
 ```
 
 ## Usage
@@ -54,7 +71,7 @@ zvm install [<version>] [<architecture>]
 
 Example:
 ```
-zvm install 
+zvm install
 ```
 
 Example output
@@ -110,4 +127,4 @@ Available versions:
 
 The zvm script uses the $ZVM_DIR environment variable to specify the directory where Zig versions are stored. By default, it is set to $HOME/.zvm. You can change this by modifying the script or setting the environment variable before running the script
 
-add 
+add

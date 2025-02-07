@@ -117,7 +117,10 @@ download_asset() {
 
 # List installed versions
 list_versions() {
-	local selected_version=$($ZVM_DIR/current/zig version)
+	local selected_version=""
+	if [ -x "$ZVM_DIR/current/zig" ]; then
+		selected_version=$($ZVM_DIR/current/zig version)
+	fi
 	local versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
 
 	if [ -z "$versions" ]; then

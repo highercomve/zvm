@@ -7,8 +7,31 @@ This script helps you manage multiple versions of Zig on your system.
 Download the zvm script and make it executable:
 
 ```
-https://raw.githubusercontent.com/highercomve/zvm/refs/heads/master/zvm
+curl -o zvm https://raw.githubusercontent.com/highercomve/zvm/refs/heads/master/zvm
 chmod +x zvm
+```
+
+For Linux systems, move the script to `/usr/local/bin`:
+
+```
+sudo mv zvm /usr/local/bin/zvm
+```
+
+For macOS systems, you can also move the script to `/usr/local/bin`:
+
+```
+sudo mv zvm /usr/local/bin/zvm
+```
+
+Alternatively, on macOS, you can place the script in `/opt/local/bin` if you are using MacPorts:
+
+```
+sudo mv zvm /opt/local/bin/zvm
+```
+
+Or in `/usr/local/bin` if you are using Homebrew:
+
+```
 sudo mv zvm /usr/local/bin/zvm
 ```
 

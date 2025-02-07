@@ -8,26 +8,26 @@ filename=zig.tar.gz
 zig_download_json=https://ziglang.org/download/index.json
 zls_repo=https://github.com/zigtools/zls.git
 
-if [ ! -d "$ZVM_DIR/current" ]; then
- echo "Setting up initial PATH for .zvm/current..."
-
- if [ -f "$HOME/.bashrc" ]; then
-  echo 'export PATH="$PATH:$HOME/.zvm/current"' >> "$HOME/.bashrc"
- fi
-
- if [ -f "$HOME/.zshrc" ]; then
-  echo 'export PATH="$PATH:$HOME/.zvm/current"' >> "$HOME/.zshrc"
- fi
-
- if [ -d "$HOME/.config/fish" ]; then
-  echo 'set -x PATH $PATH $HOME/.zvm/current' >> "$HOME/.config/fish/config.fish"
- fi
-
- echo "Initial PATH setup complete."
-fi
-
 if [ ! -d "$ZVM_DIR" ]; then
 	mkdir -p "$ZVM_DIR"
+fi
+
+if ! echo "$PATH" | grep -q "$HOME/.zvm/current"; then
+	echo "Setting up initial PATH for .zvm/current..."
+
+	if [ -f "$HOME/.bashrc" ]; then
+		echo 'export PATH="$PATH:$HOME/.zvm/current"' >> "$HOME/.bashrc"
+	fi
+
+	if [ -f "$HOME/.zshrc" ]; then
+		echo 'export PATH="$PATH:$HOME/.zvm/current"' >> "$HOME/.zshrc"
+   	fi
+
+    if [ -d "$HOME/.config/fish" ]; then
+    	echo 'set -x PATH $PATH $HOME/.zvm/current' >> "$HOME/.config/fish/config.fish"
+    fi
+
+    echo "Initial PATH setup complete."
 fi
 
 # Ensure curl and jq are installed
@@ -208,6 +208,7 @@ get_system_architecture() {
 # Install a new version
 install_version() {
 	get_versions
+
 	local version="$1"
 	local architecture="$2"
 
@@ -215,6 +216,7 @@ install_version() {
 		select_version
 		version=$selected_version
 	fi
+
 	if [ -d "$ZVM_DIR/$version" ]; then
 		echo "Version $version already installed."
 		return 1
@@ -226,14 +228,19 @@ install_version() {
 	fi
 
 	download_asset "$version" $architecture
+
 	mkdir -p "$ZVM_DIR/$version"
+
 	echo "Extracting $filename..."
 	tar -xf $filename -C "$ZVM_DIR/$version" >/dev/null
 	echo "Extraction complete."
+
 	extractedfolder=$(ls $ZVM_DIR/$version/)
 	mv $ZVM_DIR/$version/${extractedfolder}/* $ZVM_DIR/$version/
+
 	rm $filename
 	rm -rf $extractedfolder
+
 	echo "Installed version $version."
 	select_run "$version"
 }

@@ -8,8 +8,37 @@ Download the zvm script and make it executable:
 
 ```
 curl -o zvm https://raw.githubusercontent.com/highercomve/zvm/refs/heads/master/zvm
+```
+
+```
 chmod +x zvm
 ```
+
+To run the initial setup of zvm before moving the script into the system directories, execute the following command. If this doesn't work, you need to add zvm to your PATH. Refer to the step [## Optional: Add zvm to PATH](#optional-add-zvm-to-path) for detailed instructions.
+```
+./zvm
+```
+
+After adding the zvm path to your PATH environment variable, you need to source your shell configuration file to apply the changes.
+
+For `.bashrc`:
+```
+source ~/.bashrc
+```
+
+For `.zshrc`:
+```
+source ~/.zshrc
+```
+
+For `.config/fish/config.fish`:
+```
+source ~/.config/fish/config.fish
+```
+
+## Setup the Script to a System Directory
+
+After downloading and making the zvm script executable, the next step is to move it to a directory that is included in your system's PATH. This allows you to run the `zvm` command from anywhere in your terminal.
 
 For Linux systems, move the script to `/usr/local/bin`:
 
@@ -35,7 +64,9 @@ Or in `/usr/local/bin` if you are using Homebrew:
 sudo mv zvm /usr/local/bin/zvm
 ```
 
-Add the zvm path to your system's PATH environment variable to ensure that the installed Zig versions can be easily accessed from the command line. This step is crucial because it allows your terminal to locate the Zig binaries managed by zvm, enabling you to use the `zig` command without specifying the full path to the executable. By adding the zvm path to your PATH, you streamline your workflow and ensure that the correct version of Zig is used consistently across your projects.
+## Optional: Add zvm to PATH
+
+If you find that the `zvm` command is not recognized, you may need to add the zvm path to your system's PATH environment variable. This step ensures that the installed Zig versions can be easily accessed from the command line. By adding the zvm path to your PATH, you streamline your workflow and ensure that the correct version of Zig is used consistently across your projects.
 
 For `.bashrc`:
 ```

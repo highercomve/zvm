@@ -104,8 +104,12 @@ download_asset() {
         echo "⬇️ Downloading $architecture from $asset_url..."
         curl -L "$asset_url" -o $filename
         echo "✅ Download complete."
+
+        fileshasum="$(sha256sum $filename | awk '{print $1}')"
         echo "🔍 Verifying signature for $filename..."
-        if [ "$(sha256sum zig.tar.gz | awk '{print $1}')" != "$shasum" ]; then
+        echo "🔍 Verifying signature for $filename expecting: $shasum"
+        if [ "$fileshasum" != "$shasum" ]; then
+	    echo "❌ calculated shasum is $fileshasum"
             echo "❌ Signature verification failed. Please try again."
             rm $filename
             exit 1
@@ -230,6 +234,7 @@ install_version() {
         architecture=$(get_system_architecture)
         echo "🔍 Detected system architecture: $architecture"
     fi
+
 
     download_asset "$version" $architecture
 

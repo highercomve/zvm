@@ -1,10 +1,12 @@
 #!/bin/bash
 set -e
 
-# Define the signature key and directories
-sigkey="RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U"
+# Version of this zvm script
+ZVM_SCRIPT_VERSION="v0.0.1"
+
+# Define directories and constants
 ZVM_DIR="$HOME/.zvm"
-running_dir=$(sh -c "cd $(dirname $0) && pwd")
+ZVM_CONFIG="$ZVM_DIR/config"
 filename=zig.tar.gz
 zig_download_json=https://ziglang.org/download/index.json
 zls_repo=https://github.com/zigtools/zls.git
@@ -15,22 +17,51 @@ if [ ! -d "$ZVM_DIR" ]; then
 fi
 
 # Set up the initial PATH for .zvm/current if not already set
+zvm_rc_already_configured() {
+    # Returns 0 if the rc file already references zvm in any reasonable form,
+    # so we don't append duplicates or fight user-customized blocks.
+    [ -f "$1" ] || return 1
+    grep -E -q '(\.zvm/current|ZVM_DIR|ZVM_PATH|zvm/(bin|env))' "$1" 2>/dev/null
+}
+
 if ! echo "$PATH" | grep -q "$HOME/.zvm/current"; then
-    echo "🔧 Setting up initial PATH for .zvm/current..."
+    # shellcheck disable=SC2016
+    posix_block='# ZVM
+if [ -d "$HOME/.zvm" ]; then
+    case ":$PATH:" in
+        *":$HOME/.zvm/current:"*) ;;
+        *) export PATH="$PATH:$HOME/.zvm/current" ;;
+    esac
+fi'
 
-    if [ -f "$HOME/.bashrc" ]; then
-        echo 'export PATH="$PATH:$HOME/.zvm/current"' >> "$HOME/.bashrc"
+    # shellcheck disable=SC2016
+    fish_block='# ZVM
+if test -d $HOME/.zvm
+    if not contains $HOME/.zvm/current $PATH
+        set -x PATH $PATH $HOME/.zvm/current
+    end
+end'
+
+    appended=0
+    if [ -f "$HOME/.bashrc" ] && ! zvm_rc_already_configured "$HOME/.bashrc"; then
+        printf '\n%s\n' "$posix_block" >>"$HOME/.bashrc"
+        appended=1
     fi
 
-    if [ -f "$HOME/.zshrc" ]; then
-        echo 'export PATH="$PATH:$HOME/.zvm/current"' >> "$HOME/.zshrc"
+    if [ -f "$HOME/.zshrc" ] && ! zvm_rc_already_configured "$HOME/.zshrc"; then
+        printf '\n%s\n' "$posix_block" >>"$HOME/.zshrc"
+        appended=1
     fi
 
-    if [ -d "$HOME/.config/fish" ]; then
-        echo 'set -x PATH $PATH $HOME/.zvm/current' >> "$HOME/.config/fish/config.fish"
+    if [ -d "$HOME/.config/fish" ] && ! zvm_rc_already_configured "$HOME/.config/fish/config.fish"; then
+        printf '\n%s\n' "$fish_block" >>"$HOME/.config/fish/config.fish"
+        appended=1
     fi
 
-    echo "🔧 Initial PATH setup complete."
+    if [ "$appended" -eq 1 ]; then
+        echo "🔧 Setting up initial PATH for .zvm/current..."
+        echo "🔧 Initial PATH setup complete."
+    fi
 fi
 
 # Ensure required commands are installed
@@ -102,16 +133,16 @@ download_asset() {
         asset_url=$(echo "$json_data" | jq -r --arg version "$version" --arg architecture "$architecture" '.[$version][$architecture].tarball')
         shasum=$(echo "$json_data" | jq -r --arg version "$version" --arg architecture "$architecture" '.[$version][$architecture].shasum')
         echo "⬇️ Downloading $architecture from $asset_url..."
-        curl -L "$asset_url" -o $filename
+        curl -L "$asset_url" -o "$filename"
         echo "✅ Download complete."
 
-        fileshasum="$(sha256sum $filename | awk '{print $1}')"
+        fileshasum="$(sha256sum "$filename" | awk '{print $1}')"
         echo "🔍 Verifying signature for $filename..."
         echo "🔍 Verifying signature for $filename expecting: $shasum"
         if [ "$fileshasum" != "$shasum" ]; then
-	    echo "❌ calculated shasum is $fileshasum"
+            echo "❌ calculated shasum is $fileshasum"
             echo "❌ Signature verification failed. Please try again."
-            rm $filename
+            rm "$filename"
             exit 1
         fi
         echo "✅ Signature verification successful."
@@ -126,9 +157,10 @@ download_asset() {
 list_versions() {
     local selected_version=""
     if [ -x "$ZVM_DIR/current/zig" ]; then
-        selected_version=$($ZVM_DIR/current/zig version)
+        selected_version=$("$ZVM_DIR/current/zig" version)
     fi
-    local versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+    local versions
+    versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
 
     if [ -z "$versions" ]; then
         echo "❌ No versions installed."
@@ -153,7 +185,7 @@ remove_version() {
     fi
     if [ -d "$ZVM_DIR/$version" ]; then
         echo "🗑️ Removing version $version..."
-        rm -rf "$ZVM_DIR/$version"
+        rm -rf "${ZVM_DIR:?}/${version:?}"
     else
         echo "❌ Version $version not found."
         return 1
@@ -163,7 +195,8 @@ remove_version() {
 # Function to select what version to run
 select_run() {
     if [ -z "$1" ]; then
-        local versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
+        local versions
+        versions=$(find "$ZVM_DIR" -mindepth 1 -maxdepth 1 -type d -exec basename {} \;)
         if [ -z "$versions" ]; then
             echo "❌ No versions installed."
             return 1
@@ -181,35 +214,41 @@ select_run() {
         export ZVM_VERSION="$1"
     fi
 
-    # Remove any previous version on PATH
-    grep -v "/.zvm/" "$HOME/.bashrc" > "$HOME/.bashrc.tmp"
-    mv "$HOME/.bashrc.tmp" "$HOME/.bashrc"
-
-    unlink "$HOME/.zvm/current" 2>&1 >/dev/null || true
+    # Point the "current" symlink at the chosen version. The initial setup
+    # block (added once to the user's rc file at first run, guarded by
+    # zvm_rc_already_configured) is what puts $HOME/.zvm/current on PATH —
+    # so we don't rewrite rc files here. That avoids clobbering a custom
+    # ZVM_DIR setup or appending duplicate PATH exports on every `use`.
+    unlink "$HOME/.zvm/current" >/dev/null 2>&1 || true
     ln -s "$ZVM_DIR/$ZVM_VERSION" "$HOME/.zvm/current"
 
-    echo "export PATH=\"\$PATH:\$HOME/.zvm/current\"" >> "$HOME/.bashrc"
+    if ! echo "$PATH" | grep -q "$HOME/.zvm/current"; then
+        echo "⚠️  $HOME/.zvm/current is not on PATH in this shell."
+        echo "    Open a new shell, or run: export PATH=\"\$PATH:\$HOME/.zvm/current\""
+    fi
 
     echo "🔧 zig version"
-    $HOME/.zvm/current/zig version
+    "$HOME/.zvm/current/zig" version
 }
 
 # Function to get the system architecture
 get_system_architecture() {
     case "$(uname -s)-$(uname -m)" in
-        Linux-x86_64) echo "x86_64-linux" ;;
-        Linux-aarch64) echo "aarch64-linux" ;;
-        Linux-armv7l) echo "armv7a-linux" ;;
-        Linux-armv8l | Linux-arm64 | Linux-aarch64) echo "aarch64-linux" ;;
-        Linux-riscv64) echo "riscv64-linux" ;;
-        Linux-ppc64le) echo "powerpc64le-linux" ;;
-        Linux-i686) echo "x86-linux" ;;
-        Darwin-x86_64) echo "x86_64-macos" ;;
-        Darwin-arm64) echo "aarch64-macos" ;;
-        FreeBSD-x86_64) echo "x86_64-freebsd" ;;
-        MINGW64_NT-*-x86_64) echo "x86_64-windows" ;;
-        MINGW32_NT-*-i686) echo "x86-windows" ;;
-        *) echo "❌ Unsupported architecture"; exit 1 ;;
+    Linux-x86_64) echo "x86_64-linux" ;;
+    Linux-armv7l) echo "armv7a-linux" ;;
+    Linux-armv8l | Linux-arm64 | Linux-aarch64) echo "aarch64-linux" ;;
+    Linux-riscv64) echo "riscv64-linux" ;;
+    Linux-ppc64le) echo "powerpc64le-linux" ;;
+    Linux-i686) echo "x86-linux" ;;
+    Darwin-x86_64) echo "x86_64-macos" ;;
+    Darwin-arm64) echo "aarch64-macos" ;;
+    FreeBSD-x86_64) echo "x86_64-freebsd" ;;
+    MINGW64_NT-*-x86_64) echo "x86_64-windows" ;;
+    MINGW32_NT-*-i686) echo "x86-windows" ;;
+    *)
+        echo "❌ Unsupported architecture"
+        exit 1
+        ;;
     esac
 }
 
@@ -235,28 +274,395 @@ install_version() {
         echo "🔍 Detected system architecture: $architecture"
     fi
 
-
-    download_asset "$version" $architecture
+    download_asset "$version" "$architecture"
 
     mkdir -p "$ZVM_DIR/$version"
 
     echo "🔧 Extracting $filename..."
-    tar -xf $filename -C "$ZVM_DIR/$version" >/dev/null
+    tar -xf "$filename" -C "$ZVM_DIR/$version" >/dev/null
     echo "✅ Extraction complete."
 
-    extractedfolder=$(ls $ZVM_DIR/$version/)
-    mv $ZVM_DIR/$version/${extractedfolder}/* $ZVM_DIR/$version/
+    extractedfolder=$(ls "$ZVM_DIR/$version/")
+    mv "$ZVM_DIR/$version/${extractedfolder}"/* "$ZVM_DIR/$version/"
 
-    rm $filename
-    rm -rf $extractedfolder
+    rm "$filename"
+    rm -rf "${extractedfolder:?}"
 
     echo "✅ Installed version $version."
-    select_run "$version"
+    # ZVM_NO_SWITCH=1 lets auto_switch install a toolchain without flipping
+    # the global symlink — needed so per-shell auto-switch doesn't clobber
+    # the user's chosen default.
+    if [ "${ZVM_NO_SWITCH:-0}" != "1" ]; then
+        select_run "$version"
+    fi
+}
+
+# Load persisted config (sets vars like auto_enabled). Sourced safely; the
+# file is created by `zvm auto --save` and is a simple key=value file.
+zvm_load_config() {
+    if [ -f "$ZVM_CONFIG" ]; then
+        # shellcheck disable=SC1090
+        . "$ZVM_CONFIG"
+    fi
+}
+
+# Read .minimum_zig_version from a build.zig.zon file. Matches the field
+# anywhere on a line (real zon files put it on its own line, but compact
+# one-liners exist too).
+zvm_read_min_version() {
+    local zon="$1"
+    [ -f "$zon" ] || return 1
+    grep -E '\.minimum_zig_version[[:space:]]*=[[:space:]]*"' "$zon" \
+        | sed -E 's/.*\.minimum_zig_version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/' \
+        | head -n1
+}
+
+# Detect the calling shell — used when --local is run without an explicit
+# shell argument (e.g. by a user typing `zvm auto --local` directly).
+zvm_detect_shell() {
+    case "${SHELL:-}" in
+    */bash) echo bash ;;
+    */zsh) echo zsh ;;
+    */fish) echo fish ;;
+    *)
+        local pp
+        pp=$(ps -p "$PPID" -o comm= 2>/dev/null | sed 's/^-//' | tr -d ' ')
+        case "$pp" in
+        bash | zsh | fish) echo "$pp" ;;
+        *) echo bash ;;
+        esac
+        ;;
+    esac
+}
+
+# Emit shell code for the caller to `eval` — prepends $ZVM_DIR/$version to
+# PATH for the current shell, and removes any previously-injected zvm path
+# (tracked in $ZVM_SHELL_PATH). This is what `zvm auto --local` uses to
+# switch per-shell instead of flipping the global ~/.zvm/current symlink.
+zvm_emit_shell_exports() {
+    local shell="$1"
+    local target="$2"
+    case "$shell" in
+    bash | zsh)
+        cat <<EOF
+if [ -n "\${ZVM_SHELL_PATH:-}" ]; then
+    PATH=\$(printf '%s' "\$PATH" | awk -v R="\$ZVM_SHELL_PATH" 'BEGIN{RS=":";ORS=""}{if(\$0!=R){if(n++)printf ":";printf "%s",\$0}}')
+fi
+ZVM_SHELL_PATH="$target"
+export ZVM_SHELL_PATH
+export PATH="\$ZVM_SHELL_PATH:\$PATH"
+EOF
+        ;;
+    fish)
+        cat <<EOF
+if set -q ZVM_SHELL_PATH
+    set -gx PATH (string match -v -- \$ZVM_SHELL_PATH \$PATH)
+end
+set -gx ZVM_SHELL_PATH $target
+set -gx PATH \$ZVM_SHELL_PATH \$PATH
+EOF
+        ;;
+    *)
+        echo "❌ Unsupported shell for --local: $shell" >&2
+        return 1
+        ;;
+    esac
+}
+
+# Detect build.zig.zon in cwd and switch (install if missing) to the
+# minimum_zig_version it declares.
+#   $1 = ""              → global mode: flip ~/.zvm/current.
+#   $1 = bash|zsh|fish   → local mode: emit eval-able exports on stdout,
+#                          no symlink flip. Log output goes to stderr so
+#                          stdout stays clean for the caller's eval.
+auto_switch() {
+    local shell_export="${1:-}"
+    local zon="./build.zig.zon"
+
+    # In local mode, route log output to stderr; fd 3 keeps the real stdout
+    # for the shell exports we emit at the end.
+    if [ -n "$shell_export" ]; then
+        exec 3>&1 1>&2
+    fi
+
+    if [ ! -f "$zon" ]; then
+        if [ -n "$shell_export" ]; then
+            exec 1>&3 3>&-
+            return 0
+        fi
+        echo "❌ No build.zig.zon in current directory."
+        return 1
+    fi
+
+    local version
+    version=$(zvm_read_min_version "$zon")
+    if [ -z "$version" ]; then
+        if [ -n "$shell_export" ]; then
+            exec 1>&3 3>&-
+            return 0
+        fi
+        echo "❌ No .minimum_zig_version field in $zon."
+        return 1
+    fi
+
+    if [ -n "$shell_export" ]; then
+        # Already on target in this shell — emit nothing.
+        if [ "${ZVM_SHELL_PATH:-}" = "$ZVM_DIR/$version" ]; then
+            exec 1>&3 3>&-
+            return 0
+        fi
+    else
+        # Global mode: short-circuit if the symlink already points there.
+        if [ -L "$ZVM_DIR/current" ]; then
+            local current_target
+            current_target=$(readlink "$ZVM_DIR/current" 2>/dev/null || true)
+            if [ "$current_target" = "$ZVM_DIR/$version" ]; then
+                echo "✅ Already on Zig $version (per build.zig.zon)."
+                return 0
+            fi
+        fi
+    fi
+
+    # Install if missing. ZVM_NO_SWITCH=1 stops install_version from
+    # flipping the global symlink — required for local mode.
+    if [ ! -d "$ZVM_DIR/$version" ]; then
+        echo "📦 build.zig.zon wants Zig $version — installing."
+        ZVM_NO_SWITCH=1 install_version "$version" || {
+            [ -n "$shell_export" ] && exec 1>&3 3>&-
+            return 1
+        }
+    elif [ -z "$shell_export" ]; then
+        echo "🔁 build.zig.zon wants Zig $version — switching."
+    fi
+
+    if [ -n "$shell_export" ]; then
+        exec 1>&3 3>&-
+        zvm_emit_shell_exports "$shell_export" "$ZVM_DIR/$version"
+    else
+        select_run "$version"
+    fi
+}
+
+# Install the cd-time auto-switch hook into the user's rc files. Idempotent:
+# detects existing `zvm init` lines so re-running --save does not duplicate.
+zvm_install_hooks() {
+    local installed=0
+
+    if [ -f "$HOME/.bashrc" ] && ! grep -q 'zvm init bash' "$HOME/.bashrc"; then
+        # shellcheck disable=SC2016
+        printf '\n# ZVM auto-switch hook\neval "$(zvm init bash)"\n' >>"$HOME/.bashrc"
+        echo "   ➕ Added cd hook to ~/.bashrc"
+        installed=1
+    fi
+
+    if [ -f "$HOME/.zshrc" ] && ! grep -q 'zvm init zsh' "$HOME/.zshrc"; then
+        # shellcheck disable=SC2016
+        printf '\n# ZVM auto-switch hook\neval "$(zvm init zsh)"\n' >>"$HOME/.zshrc"
+        echo "   ➕ Added cd hook to ~/.zshrc"
+        installed=1
+    fi
+
+    if [ -d "$HOME/.config/fish" ] && \
+        ! grep -q 'zvm init fish' "$HOME/.config/fish/config.fish" 2>/dev/null; then
+        printf '\n# ZVM auto-switch hook\nzvm init fish | source\n' \
+            >>"$HOME/.config/fish/config.fish"
+        echo "   ➕ Added cd hook to ~/.config/fish/config.fish"
+        installed=1
+    fi
+
+    if [ "$installed" -eq 1 ]; then
+        echo "   Open a new shell (or source the rc) to activate."
+    fi
+}
+
+# Strip the cd hook lines we previously appended. Only removes our exact
+# additions (the comment header + the eval/source line), so user-edited
+# blocks are left alone.
+zvm_uninstall_hooks() {
+    local removed=0
+    local rc
+    for rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.config/fish/config.fish"; do
+        [ -f "$rc" ] || continue
+        if grep -q 'zvm init' "$rc"; then
+            grep -v -E '^(# ZVM auto-switch hook|eval "\$\(zvm init (bash|zsh)\)"|zvm init fish \| source)$' \
+                "$rc" >"$rc.tmp"
+            mv "$rc.tmp" "$rc"
+            echo "   ➖ Removed cd hook from $rc"
+            removed=1
+        fi
+    done
+    [ "$removed" -eq 0 ] && echo "   (no cd hooks were installed)"
+}
+
+# `zvm auto [--global | --local [shell] | --hook | --disable]`
+#
+# Modes (mutually exclusive — last one wins):
+#   --global   (default) flip the ~/.zvm/current symlink — affects every shell.
+#   --local    per-shell PATH. Prints eval-able shell code on stdout; logs go
+#              to stderr. Optional positional arg picks the shell
+#              (bash|zsh|fish); auto-detected from $SHELL otherwise.
+#   --hook     install the cd-time hook into your rc files and mark it
+#              enabled in the zvm config. Idempotent.
+#   --disable  remove the cd hook and the config flag.
+auto_cmd() {
+    local mode="global"
+    local shell_export=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+        --global) mode="global" ;;
+        --local)
+            mode="local"
+            case "${2:-}" in
+            bash | zsh | fish)
+                shell_export="$2"
+                shift
+                ;;
+            esac
+            ;;
+        --hook) mode="hook" ;;
+        --disable) mode="disable" ;;
+        *)
+            echo "❌ Unknown flag: $1" >&2
+            return 1
+            ;;
+        esac
+        shift
+    done
+
+    case "$mode" in
+    disable)
+        if [ -f "$ZVM_CONFIG" ]; then
+            grep -v '^auto_hook=' "$ZVM_CONFIG" >"$ZVM_CONFIG.tmp" || true
+            mv "$ZVM_CONFIG.tmp" "$ZVM_CONFIG"
+        fi
+        echo "✅ Auto-switch hook disabled."
+        zvm_uninstall_hooks
+        return 0
+        ;;
+    hook)
+        mkdir -p "$ZVM_DIR"
+        if [ -f "$ZVM_CONFIG" ]; then
+            grep -v '^auto_hook=' "$ZVM_CONFIG" >"$ZVM_CONFIG.tmp" || true
+            mv "$ZVM_CONFIG.tmp" "$ZVM_CONFIG"
+        fi
+        echo "auto_hook=1" >>"$ZVM_CONFIG"
+        echo "✅ Auto-switch hook installed (cd into a dir with build.zig.zon to switch)."
+        zvm_install_hooks
+        return 0
+        ;;
+    local)
+        [ -z "$shell_export" ] && shell_export=$(zvm_detect_shell)
+        auto_switch "$shell_export"
+        ;;
+    global)
+        auto_switch ""
+        ;;
+    esac
+}
+
+# Emit a shell hook that runs `zvm auto --quiet` on every directory change.
+# Usage: eval "$(zvm init bash)"  (or zsh / fish)
+init_cmd() {
+    local shell="$1"
+    case "$shell" in
+    bash)
+        cat <<'EOF'
+# ZVM shell integration (bash)
+# - zvm() wrapper: auto-eval output of `zvm auto --local ...` so it applies
+#   to the current shell. Falls through to the real binary otherwise.
+# - __zvm_auto_hook: per-shell PATH switch on cd, no global symlink flip.
+zvm() {
+    if [ "${1:-}" = "auto" ]; then
+        local _a _local=0
+        for _a in "$@"; do
+            [ "$_a" = "--local" ] && _local=1 && break
+        done
+        if [ "$_local" = "1" ]; then
+            local _out
+            _out=$(command zvm "$@") || return $?
+            [ -n "$_out" ] && eval "$_out"
+            return 0
+        fi
+    fi
+    command zvm "$@"
+}
+__zvm_auto_hook() {
+    if [ "$PWD" != "${__ZVM_LAST_PWD:-}" ]; then
+        __ZVM_LAST_PWD="$PWD"
+        zvm auto --local bash 2>/dev/null || true
+    fi
+}
+case ";${PROMPT_COMMAND:-};" in
+    *";__zvm_auto_hook;"*) ;;
+    *) PROMPT_COMMAND="__zvm_auto_hook${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;
+esac
+__zvm_auto_hook
+EOF
+        ;;
+    zsh)
+        cat <<'EOF'
+# ZVM shell integration (zsh)
+zvm() {
+    if [ "${1:-}" = "auto" ]; then
+        local _a _local=0
+        for _a in "$@"; do
+            [ "$_a" = "--local" ] && _local=1 && break
+        done
+        if [ "$_local" = "1" ]; then
+            local _out
+            _out=$(command zvm "$@") || return $?
+            [ -n "$_out" ] && eval "$_out"
+            return 0
+        fi
+    fi
+    command zvm "$@"
+}
+__zvm_auto_hook() { zvm auto --local zsh 2>/dev/null || true }
+autoload -U add-zsh-hook
+add-zsh-hook chpwd __zvm_auto_hook
+__zvm_auto_hook
+EOF
+        ;;
+    fish)
+        cat <<'EOF'
+# ZVM shell integration (fish)
+function zvm
+    set -l _local 0
+    if test (count $argv) -gt 0; and test "$argv[1]" = "auto"
+        for _a in $argv
+            if test "$_a" = "--local"
+                set _local 1
+                break
+            end
+        end
+    end
+    if test "$_local" = "1"
+        set -l _out (command zvm $argv)
+        or return $status
+        if test -n "$_out"
+            echo "$_out" | source
+        end
+        return 0
+    end
+    command zvm $argv
+end
+function __zvm_auto_hook --on-variable PWD
+    zvm auto --local fish 2>/dev/null
+end
+__zvm_auto_hook
+EOF
+        ;;
+    *)
+        echo "❌ Unknown shell: ${shell:-<none>}. Supported: bash, zsh, fish."
+        echo "   Usage: eval \"\$(zvm init bash)\"   # or zsh / fish"
+        return 1
+        ;;
+    esac
 }
 
 # Function to print usage instructions
 print_usage() {
-    echo "Usage: zvm [list|remove|install|use] [version/options]"
+    echo "Usage: zvm [list|remove|install|use|auto] [version/options]"
     echo ""
     echo "Options:"
     echo "  zls         - Install zls for the current version"
@@ -264,13 +670,31 @@ print_usage() {
     echo "  remove      - Remove installed version"
     echo "  install     - Install a new version"
     echo "  use         - Select what version to run"
+    echo "  auto        - Switch to the minimum_zig_version from ./build.zig.zon"
+    echo "                Modes: --global  (default) flip ~/.zvm/current — affects every shell"
+    echo "                       --local [bash|zsh|fish]  per-shell PATH; prints eval-able"
+    echo "                                                exports (shell auto-detected if omitted)"
+    echo "                       --hook    install the cd hook into your rc files"
+    echo "                       --disable remove the cd hook"
+    echo "  init        - Print shell hook for cd-time auto-switching"
+    echo "                Usage: eval \"\$(zvm init bash|zsh|fish)\""
     echo "  versions    - Show all the versions available on zig website"
+    echo "  version     - Print this zvm script version (also: --version, -v)"
+}
+
+# Print the zvm script version (and active Zig version if available)
+print_version() {
+    echo "zvm $ZVM_SCRIPT_VERSION"
+    if [ -x "$ZVM_DIR/current/zig" ]; then
+        echo "zig $("$ZVM_DIR/current/zig" version) ($ZVM_DIR/current)"
+    fi
 }
 
 # Function to install zls (Zig Language Server)
 zls_install() {
     local selected_version="current"
-    local tag=$($ZVM_DIR/current/zig version)
+    local tag
+    tag=$("$ZVM_DIR/current/zig" version)
 
     if [ -f "$ZVM_DIR/$selected_version/zls" ]; then
         echo "❌ zls already installed."
@@ -278,11 +702,11 @@ zls_install() {
     fi
 
     echo "🔧 Installing zls..."
-    cd $ZVM_DIR/$selected_version
-    git clone --branch $tag $zls_repo zls_src
+    cd "$ZVM_DIR/$selected_version"
+    git clone --branch "$tag" "$zls_repo" zls_src
     cd zls_src
     zig build
-    mv zig-out/bin/zls $ZVM_DIR/$selected_version/zls
+    mv zig-out/bin/zls "$ZVM_DIR/$selected_version/zls"
     cd ../
     rm -rf zls_src
     echo "✅ Installed zls."
@@ -291,32 +715,43 @@ zls_install() {
 # Function to switch between subcommands
 switch_command() {
     case $1 in
-        zls)
-            shift
-            zls_install $@
+    zls)
+        shift
+        zls_install "$@"
         ;;
-        list)
-            list_versions
+    list)
+        list_versions
         ;;
-        remove)
-            shift
-            remove_version $@
+    remove)
+        shift
+        remove_version "$@"
         ;;
-        install)
-            shift
-            install_version $@
+    install)
+        shift
+        install_version "$@"
         ;;
-        use)
-            shift
-            select_run $@
+    use)
+        shift
+        select_run "$@"
         ;;
-        versions)
-            get_versions
-            echo "$json_data" | jq -r 'keys[]' | sort -Vr
+    auto)
+        shift
+        auto_cmd "$@"
         ;;
-        *)
-            print_usage
-            exit 1
+    init)
+        shift
+        init_cmd "$@"
+        ;;
+    versions)
+        get_versions
+        echo "$json_data" | jq -r 'keys[]' | sort -Vr
+        ;;
+    version | --version | -v)
+        print_version
+        ;;
+    *)
+        print_usage
+        exit 1
         ;;
     esac
 }
@@ -327,4 +762,5 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
-switch_command $@
+zvm_load_config
+switch_command "$@"
